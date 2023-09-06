@@ -116,6 +116,7 @@ def evaluate(model, data_loader, tokenizer, device, denormalize=None, is_validat
     else:
         return preds
 
+# ======================= Main body function ========================== #
 def main(args, config):
     device = torch.device(args.device)
     print('DATASET:', args.name)
@@ -153,9 +154,9 @@ def main(args, config):
         dataset_test = SMILESDataset_SHIN_MLM('Stest.csv', test = True)
 
     print(len(dataset_train), len(dataset_val), len(dataset_test))
-    train_loader = DataLoader(dataset_train, batch_size=config['batch_size_train'], num_workers=8, pin_memory=True, drop_last=True)
-    val_loader = DataLoader(dataset_val, batch_size=config['batch_size_test'], num_workers=8, pin_memory=True, drop_last=False)
-    test_loader = DataLoader(dataset_test, batch_size=config['batch_size_test'], num_workers=8, pin_memory=True, drop_last=False)
+    train_loader = DataLoader(dataset_train, batch_size=config['batch_size_train'], num_workers=2, pin_memory=True, drop_last=True)
+    val_loader = DataLoader(dataset_val, batch_size=config['batch_size_test'], num_workers=2, pin_memory=True, drop_last=False)
+    test_loader = DataLoader(dataset_test, batch_size=config['batch_size_test'], num_workers=2, pin_memory=True, drop_last=False)
 
     tokenizer = BertTokenizer(vocab_file=args.vocab_filename, do_lower_case=False, do_basic_tokenize=False)
     tokenizer.wordpiece_tokenizer = WordpieceTokenizer(vocab=tokenizer.vocab, unk_token=tokenizer.unk_token, max_input_chars_per_word=250)
@@ -172,6 +173,7 @@ def main(args, config):
     model = SPMM_regressor(config=config, tokenizer=tokenizer)
     print('#parameters:', sum(p.numel() for p in model.parameters() if p.requires_grad))
 
+    # ============ weights parameters =========== #
     if args.checkpoint:
         print('LOADING PRETRAINED MODEL..')
         checkpoint = torch.load(args.checkpoint, map_location='cpu')
@@ -186,6 +188,8 @@ def main(args, config):
         # print(msg)
 
     model = model.to(device)
+
+    # ============ Optimizer ============= #
     arg_opt = config['optimizer']
     optimizer = optim.AdamW(model.parameters(), lr=arg_opt['lr'], weight_decay=arg_opt['weight_decay'])
 
@@ -195,7 +199,6 @@ def main(args, config):
     max_epoch = config['schedular']['epochs']
     warmup_steps = config['schedular']['warmup_epochs']
     best_valid = 10000.
-    best_test = 0
 
     start_time = time.time()
 
@@ -207,20 +210,20 @@ def main(args, config):
 
         # For validation set:
         val_rmse, val_preds, val_answers = evaluate(model, val_loader, tokenizer, device, is_validation=True) #, denormalize
-        print('VALID MSE: %.4f' % val_stats)
+        print('VALID MSE: %.4f' % val_rmse)
 
         # For test set:
         test_preds = evaluate(model, test_loader, tokenizer, device, is_validation=False) #, denormalize
 
-        if val_stats < best_valid:
-            best_valid = val_stats
-            best_test = test_stats
+        if val_rmse < best_valid:
+            best_valid = val_rmse
+
         lr_scheduler.step(epoch + warmup_steps + 1)
 
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     print('Training time {}'.format(total_time_str))
-    print('DATASET:', args.name, '\tTest set MSE of the checkpoint with best validation MSE:', best_test)
+    print('DATASET:', args.name, '\tTest set MSE of the checkpoint with best validation MSE:')
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
