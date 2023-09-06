@@ -16,7 +16,7 @@ import torch.backends.cudnn as cudnn
 from transformers import BertTokenizer, WordpieceTokenizer
 import datetime
 from dataset import SMILESDataset_LIPO, SMILESDataset_BACER, SMILESDataset_Clearance, SMILESDataset_ESOL, SMILESDataset_Freesolv
-from spmm_custom_r import SMILESDataset_SHIN_MLM, SMILESDataset_SHIN_HLM
+from SPMM_custom_dataset import SMILESDataset_SHIN_MLM, SMILESDataset_SHIN_HLM
 from torch.utils.data import DataLoader
 import torch.optim as optim
 from scheduler import create_scheduler
@@ -206,11 +206,11 @@ def main(args, config):
         #denormalize = (dataset_train.value_mean, dataset_train.value_std)
 
         # For validation set:
-        val_rmse, val_preds, val_answers = evaluate(model, val_loader, tokenizer, device, denormalize, is_validation=True)
+        val_rmse, val_preds, val_answers = evaluate(model, val_loader, tokenizer, device, is_validation=True) #, denormalize
         print('VALID MSE: %.4f' % val_stats)
 
         # For test set:
-        test_preds = evaluate(model, test_loader, tokenizer, device, denormalize, is_validation=False)
+        test_preds = evaluate(model, test_loader, tokenizer, device, is_validation=False) #, denormalize
 
         if val_stats < best_valid:
             best_valid = val_stats

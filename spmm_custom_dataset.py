@@ -31,7 +31,7 @@ class SMILESDataset_SHIN_MLM(Dataset):
         return len(self.data)
 
     def __getitem__(self, index):
-        mol = Chem.MolFromSmiles(self.data[index]['smiles'])
+        mol = Chem.MolFromSmiles(self.data[index]['SMILES'])
         smiles = Chem.MolToSmiles(mol, isomericSmiles=False, canonical=True)
 
         if self.test:
@@ -54,7 +54,7 @@ class SMILESDataset_SHIN_HLM(Dataset):
         return len(self.data)
 
     def __getitem__(self, index):
-        mol = Chem.MolFromSmiles(self.data[index]['smiles'])
+        mol = Chem.MolFromSmiles(self.data[index]['SMILES'])
         smiles = Chem.MolToSmiles(mol, isomericSmiles=False, canonical=True)
 
         if self.test:
