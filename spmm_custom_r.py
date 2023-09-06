@@ -16,7 +16,7 @@ import torch.backends.cudnn as cudnn
 from transformers import BertTokenizer, WordpieceTokenizer
 import datetime
 from dataset import SMILESDataset_LIPO, SMILESDataset_BACER, SMILESDataset_Clearance, SMILESDataset_ESOL, SMILESDataset_Freesolv
-from customdataset import SMILESDataset_SHIN_MLM, SMILESDataset_SHIN_HLM
+from spmm_custom_r import SMILESDataset_SHIN_MLM, SMILESDataset_SHIN_HLM
 from torch.utils.data import DataLoader
 import torch.optim as optim
 from scheduler import create_scheduler
