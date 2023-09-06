@@ -16,7 +16,7 @@ import torch.backends.cudnn as cudnn
 from transformers import BertTokenizer, WordpieceTokenizer
 import datetime
 from dataset import SMILESDataset_LIPO, SMILESDataset_BACER, SMILESDataset_Clearance, SMILESDataset_ESOL, SMILESDataset_Freesolv
-from SPMM_custom_dataset import SMILESDataset_SHIN_MLM, SMILESDataset_SHIN_HLM
+from spmm_custom_dataset import SMILESDataset_SHIN_MLM, SMILESDataset_SHIN_HLM
 from torch.utils.data import DataLoader
 import torch.optim as optim
 from scheduler import create_scheduler
@@ -90,10 +90,16 @@ def evaluate(model, data_loader, tokenizer, device, denormalize=None, is_validat
     if is_validation:
         answers = []
 
-    for text, value in data_loader:
-        text_input = tokenizer(text, padding='longest', return_tensors="pt").to(device)
+    for item in data_loader:
+        # Unpack depending on the data loader's output for validation or test
+        if is_validation:
+            text, value = item
+        else:
+            text = item[0]
+            value = None
 
-        prediction = model(text_input.input_ids[:, 1:], text_input.attention_mask[:, 1:], value if is_validation else None, eval=True)
+        text_input = tokenizer(text, padding='longest', return_tensors="pt").to(device)
+        prediction = model(text_input.input_ids[:, 1:], text_input.attention_mask[:, 1:], value if value is not None else None, eval=True)
         preds.append(prediction.cpu())
 
         if is_validation:
@@ -109,12 +115,12 @@ def evaluate(model, data_loader, tokenizer, device, denormalize=None, is_validat
     # If it's validation, compute RMSE
     if is_validation:
         answers = torch.cat(answers, dim=0)
-        answers = answers * value_std + value_mean
         lossfn = nn.MSELoss()
         rmse = torch.sqrt(lossfn(preds, answers)).item()
         return rmse, preds, answers
     else:
         return preds
+
 
 # ======================= Main body function ========================== #
 def main(args, config):
@@ -202,17 +208,21 @@ def main(args, config):
 
     start_time = time.time()
 
+    # ============ Training start =============== #
     for epoch in range(0, max_epoch):
 
         print('TRAIN', epoch)
+
+        # ================== Train datasets loaded ================== #
         train(model, train_loader, optimizer, tokenizer, epoch, warmup_steps, device, lr_scheduler)
+
         #denormalize = (dataset_train.value_mean, dataset_train.value_std)
 
-        # For validation set:
+        # ================== Validation datasets loaded ================== #
         val_rmse, val_preds, val_answers = evaluate(model, val_loader, tokenizer, device, is_validation=True) #, denormalize
         print('VALID MSE: %.4f' % val_rmse)
 
-        # For test set:
+        # ================== Test datasets loaded ================== #
         test_preds = evaluate(model, test_loader, tokenizer, device, is_validation=False) #, denormalize
 
         if val_rmse < best_valid:
