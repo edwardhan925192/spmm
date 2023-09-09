@@ -142,13 +142,13 @@ def main(args, config):
         dataset_val = SMILESDataset_Clearance('data/4_MoleculeNet/Clearance_valid.csv')
         dataset_test = SMILESDataset_Clearance('data/4_MoleculeNet/Clearance_test.csv')
     elif name == 'HLM':
-        dataset_train = SMILESDataset_SHIN_HLM('Strain.csv')
-        dataset_val = SMILESDataset_SHIN_HLM('Sval.csv')
-        dataset_test = SMILESDataset_SHIN_HLM('Stest.csv', test = True)
+        dataset_train = SMILESDataset_SHIN_HLM('data/Strain.csv')
+        dataset_val = SMILESDataset_SHIN_HLM('data/Sval.csv')
+        dataset_test = SMILESDataset_SHIN_HLM('data/Stest.csv', test = True)
     elif name == 'MLM':
-        dataset_train = SMILESDataset_SHIN_MLM('Strain.csv')
-        dataset_val = SMILESDataset_SHIN_MLM('Sval.csv')
-        dataset_test = SMILESDataset_SHIN_MLM('Stest.csv', test = True)
+        dataset_train = SMILESDataset_SHIN_MLM('data/Strain.csv')
+        dataset_val = SMILESDataset_SHIN_MLM('data/Sval.csv')
+        dataset_test = SMILESDataset_SHIN_MLM('data/Stest.csv', test = True)
 
     print(len(dataset_train), len(dataset_val), len(dataset_test))
     train_loader = DataLoader(dataset_train, batch_size=config['batch_size_train'], num_workers=2, pin_memory=True, drop_last=True)
