@@ -73,7 +73,7 @@ def train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device,
             scheduler.step(i // step_size)
 
 @torch.no_grad()
-def evaluate(model, data_loader, tokenizer, device, denormalize=None, is_validation=True):
+def evaluate(model, data_loader,feature_loader, tokenizer, device, denormalize=None, is_validation=True):
     model.eval()
     preds = []
 
@@ -120,40 +120,30 @@ def main(args, config):
 
     # === Dataset === #
     print("Creating dataset")
-    name = args.name
-    if name == 'bace':
-        dataset_train = SMILESDataset_BACER('data/4_MoleculeNet/BACER_train.csv')
-        dataset_val = SMILESDataset_BACER('data/4_MoleculeNet/BACER_valid.csv')
-        dataset_test = SMILESDataset_BACER('data/4_MoleculeNet/BACER_test.csv')
-    elif name == 'lipo':
-        dataset_train = SMILESDataset_LIPO('data/4_MoleculeNet/LIPO_train.csv')
-        dataset_val = SMILESDataset_LIPO('data/4_MoleculeNet/LIPO_valid.csv')
-        dataset_test = SMILESDataset_LIPO('data/4_MoleculeNet/LIPO_test.csv')
-    elif name == 'esol':
-        dataset_train = SMILESDataset_ESOL('data/4_MoleculeNet/ESOL_train.csv')
-        dataset_val = SMILESDataset_ESOL('data/4_MoleculeNet/ESOL_valid.csv')
-        dataset_test = SMILESDataset_ESOL('data/4_MoleculeNet/ESOL_test.csv')
-    elif name == 'freesolv':
-        dataset_train = SMILESDataset_Freesolv('data/4_MoleculeNet/freesolv_train.csv')
-        dataset_val = SMILESDataset_Freesolv('data/4_MoleculeNet/freesolv_valid.csv')
-        dataset_test = SMILESDataset_Freesolv('data/4_MoleculeNet/freesolv_test.csv')
-    elif name == 'clearance':
-        dataset_train = SMILESDataset_Clearance('data/4_MoleculeNet/Clearance_train.csv')
-        dataset_val = SMILESDataset_Clearance('data/4_MoleculeNet/Clearance_valid.csv')
-        dataset_test = SMILESDataset_Clearance('data/4_MoleculeNet/Clearance_test.csv')
-    elif name == 'HLM':
+    name = args.name    
+    if name == 'HLM':
         dataset_train = SMILESDataset_SHIN_HLM('data/Strain.csv')
         dataset_val = SMILESDataset_SHIN_HLM('data/Sval.csv')
         dataset_test = SMILESDataset_SHIN_HLM('data/Stest.csv', test = True)
+        dataset_feature_train = FEATURE_train_dataset('data/train_features_hlm.csv')
+        dataset_feature_val = FEATURE_train_dataset('data/vak_features_hlm.csv')
+        dataset_feature_test = FEATURE_train_dataset('data/test_features_hlm.csv')
+        
     elif name == 'MLM':
         dataset_train = SMILESDataset_SHIN_MLM('data/Strain.csv')
         dataset_val = SMILESDataset_SHIN_MLM('data/Sval.csv')
         dataset_test = SMILESDataset_SHIN_MLM('data/Stest.csv', test = True)
+        dataset_feature_train = FEATURE_train_dataset('data/train_features_mlm.csv')
+        dataset_feature_val = FEATURE_train_dataset('data/vak_features_mlm.csv')
+        dataset_feature_test = FEATURE_train_dataset('data/test_features_mlm.csv')
 
     print(len(dataset_train), len(dataset_val), len(dataset_test))
     train_loader = DataLoader(dataset_train, batch_size=config['batch_size_train'], num_workers=2, pin_memory=True, drop_last=True)
     val_loader = DataLoader(dataset_val, batch_size=config['batch_size_test'], num_workers=2, pin_memory=True, drop_last=False)
     test_loader = DataLoader(dataset_test, batch_size=config['batch_size_test'], num_workers=2, pin_memory=True, drop_last=False)
+    feature_train_loader = DataLoader(dataset_train, batch_size=config['batch_size_train'], num_workers=2, pin_memory=True, drop_last=True)
+    feature_val_loader = DataLoader(dataset_val, batch_size=config['batch_size_test'], num_workers=2, pin_memory=True, drop_last=False)
+    feature_test_loader = DataLoader(dataset_test, batch_size=config['batch_size_test'], num_workers=2, pin_memory=True, drop_last=False)
 
     tokenizer = BertTokenizer(vocab_file=args.vocab_filename, do_lower_case=False, do_basic_tokenize=False)
     tokenizer.wordpiece_tokenizer = WordpieceTokenizer(vocab=tokenizer.vocab, unk_token=tokenizer.unk_token, max_input_chars_per_word=250)
@@ -205,16 +195,14 @@ def main(args, config):
         print('TRAIN', epoch)
 
         # ================== Train datasets loaded ================== #
-        train(model, train_loader, optimizer, tokenizer, epoch, warmup_steps, device, lr_scheduler)
-
-        #denormalize = (dataset_train.value_mean, dataset_train.value_std)
+        train(model, train_loader, feature_train_loader optimizer, tokenizer, epoch, warmup_steps, device, lr_scheduler)        
 
         # ================== Validation datasets loaded ================== #
-        val_rmse, val_preds, val_answers = evaluate(model, val_loader, tokenizer, device, is_validation=True) #, denormalize
+        val_rmse, val_preds, val_answers = evaluate(model, val_loader, feature_val_loader tokenizer, device, is_validation=True) #, denormalize
         print('VALID MSE: %.4f' % val_rmse)
 
         # ================== Test datasets loaded ================== #
-        test_preds = evaluate(model, test_loader, tokenizer, device, is_validation=False) #, denormalize
+        test_preds = evaluate(model, test_loader, feature_test_loader, tokenizer, device, is_validation=False) #, denormalize
 
         if val_rmse < best_valid:
             best_valid = val_rmse
