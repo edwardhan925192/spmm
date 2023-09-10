@@ -19,5 +19,6 @@ Run `pip install -r requirements.txt` to install the required packages.
 ## Custom made regression task 
 
     ```
-    python spmm_custom_r.py --checkpoint './Pretrain/checkpoint_SPMM_20m.ckpt' --name 'esol'    
+    python spmm_custom_r.py --checkpoint './Pretrain/checkpoint_SPMM_20m.ckpt' --name 'MLM'    
+    python spmm_custom_r.py --checkpoint './Pretrain/checkpoint_SPMM_20m.ckpt' --name 'HLM'    
     ```
