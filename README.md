@@ -19,20 +19,5 @@ Run `pip install -r requirements.txt` to install the required packages.
 ## Custom made regression task 
 
     ```
-    python d_regression.py --checkpoint './Pretrain/checkpoint_SPMM_20m.ckpt' --name 'esol'
-    python d_classification.py --checkpoint './Pretrain/checkpoint_SPMM_20m.ckpt' --name 'bbbp'
-    python d_classification_multilabel.py --checkpoint './Pretrain/checkpoint_SPMM_20m.ckpt' --name 'clintox'
-    ```
-
-6. Forward/retro-reaction prediction tasks
-
-    `d_rxn_prediction.py` performs both forward/reverse reaction prediction task on USPTO-480k and USPTO-50k dataset.
-
-    e.g. forward reaction prediction, no beam search
-    ```
-    python d_rxn_prediction.py --checkpoint './Pretrain/checkpoint_SPMM_20m.ckpt' --mode 'forward' --n_beam 1 
-    ```
-    e.g. retro reaction prediction, beam search with k=3
-    ```
-    python d_rxn_prediction.py --checkpoint './Pretrain/checkpoint_SPMM_20m.ckpt' --mode 'retro' --n_beam 3 
+    python spmm_custom_r.py --checkpoint './Pretrain/checkpoint_SPMM_20m.ckpt' --name 'esol'    
     ```
