@@ -1,4 +1,4 @@
-# Info: This repo is forked  
+# About this repository
 
 This repo forked github repo of Official Github for SPMM and some files are newly added and adjusted specifically for tackling metabolism stability.  
 
