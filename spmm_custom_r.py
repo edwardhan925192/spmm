@@ -39,7 +39,7 @@ class SPMM_regressor(nn.Module):
         self.feature_proj = nn.Sequential(
             nn.Linear(config['feature_dim'], config['feature_proj_dim']),
             nn.GELU(),
-            nn.Dropout(config.dropout_prob),  
+            nn.Dropout(config['dropout_prob']),  
         )
 
         self.reg_head = nn.Sequential(
