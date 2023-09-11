@@ -224,7 +224,7 @@ def main(args, config):
 
         # After all epochs for this fold, you can run the test if needed
         print(f'===== Testing for FOLD {fold + 1} =====')
-        test_preds = evaluate(model, test_loader, feature_test_loader, tokenizer, device, is_validation=False)
+        # test_preds = evaluate(model, test_loader, feature_test_loader, tokenizer, device, is_validation=False)
 
     # Calculate the average RMSE over the 5 validation sets
     average_rmse = sum(all_val_rmses) / num_folds
