@@ -37,15 +37,15 @@ class SPMM_regressor(nn.Module):
 
         # Projecting features denoising with additional dropout for regularization purpose
         self.feature_proj = nn.Sequential(
-            nn.Linear(config.feature_dim, config.feature_proj_dim),
+            nn.Linear(config['feature_dim'], config['feature_proj_dim']),
             nn.GELU(),
             nn.Dropout(config.dropout_prob),  
         )
 
         self.reg_head = nn.Sequential(
-            nn.Linear(text_width + config.feature_proj_dim , (text_width * 2) + config.feature_proj_dim ),
+            nn.Linear(text_width + config['feature_proj_dim'] , (text_width * 2) + config['feature_proj_dim'] ),
             nn.GELU(),
-            nn.Linear((text_width * 2) + config.feature_proj_dim, 1)
+            nn.Linear((text_width * 2) + config['feature_proj_dim'], 1)
         )
 
         # Unfreeze feature_proj and reg_head
