@@ -7,7 +7,7 @@ import torch.backends.cudnn as cudnn
 from transformers import BertTokenizer, WordpieceTokenizer
 import datetime
 from dataset import SMILESDataset_LIPO, SMILESDataset_BACER, SMILESDataset_Clearance, SMILESDataset_ESOL, SMILESDataset_Freesolv
-from spmm_custom_dataset import SMILESDataset_SHIN_MLM, SMILESDataset_SHIN_HLM
+from spmm_custom_dataset import SMILESDataset_SHIN_MLM, SMILESDataset_SHIN_HLM, FEATUREDATASET
 from torch.utils.data import DataLoader
 import torch.optim as optim
 from scheduler import create_scheduler
@@ -21,7 +21,7 @@ class AttrDict(dict):
         self.__dict__ = self
 
 class SPMM_regressor(nn.Module):
-    def __init__(self, tokenizer=None, config=None):
+    def __init__(self,  tokenizer=None, config=None):
         super().__init__()
         self.tokenizer = tokenizer
 
@@ -31,23 +31,48 @@ class SPMM_regressor(nn.Module):
         self.text_encoder.cls = nn.Identity()
         text_width = self.text_encoder.config.hidden_size
 
-        self.reg_head = nn.Sequential(
-            nn.Linear(text_width * 1, text_width * 2),
+        # Freeze BERT layers
+        for param in self.text_encoder.parameters():
+            param.requires_grad = False
+
+        # Projecting features denoising with additional dropout for regularization purpose
+        self.feature_proj = nn.Sequential(
+            nn.Linear(config.feature_dim, config.feature_proj_dim),
             nn.GELU(),
-            nn.Linear(text_width * 2, 1)
+            nn.Dropout(config.dropout_prob),  
         )
 
-    def forward(self, text_input_ids, text_attention_mask, value, eval=False):
+        self.reg_head = nn.Sequential(
+            nn.Linear(text_width + config.feature_proj_dim , (text_width * 2) + config.feature_proj_dim ),
+            nn.GELU(),
+            nn.Linear((text_width * 2) + config.feature_proj_dim, 1)
+        )
+
+        # Unfreeze feature_proj and reg_head
+        for param in self.feature_proj.parameters():
+            param.requires_grad = True
+        for param in self.reg_head.parameters():
+            param.requires_grad = True
+
+    def forward(self, text_input_ids, text_attention_mask,features, value, eval=False):
         vl_embeddings = self.text_encoder.bert(text_input_ids, attention_mask=text_attention_mask, return_dict=True, mode='text').last_hidden_state
         vl_embeddings = vl_embeddings[:, 0, :]
-        pred = self.reg_head(vl_embeddings).squeeze(-1)
+        
+        # Project the features
+        projected_features = self.feature_proj(features)
+        
+        # Concatenate with vl_embeddings
+        combined_representation = torch.cat([vl_embeddings, projected_features], dim=-1)
+        
+        # Regression head
+        pred = self.reg_head(combined_representation).squeeze(-1)
 
         if eval:    return pred
         lossfn = nn.MSELoss()
         loss = lossfn(pred, value)
         return loss
 
-def train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device, scheduler):
+def train(model, data_loader, feature_loader, optimizer, tokenizer, epoch, warmup_steps, device, scheduler):
     # train
     model.train()
 
@@ -56,14 +81,19 @@ def train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device,
     step_size = 100
     warmup_iterations = warmup_steps * step_size
 
-    tqdm_data_loader = tqdm(data_loader, miniters=print_freq, desc=header)
-    for i, (text, value) in enumerate(tqdm_data_loader):
+    # Use zip to combine data_loader and feature_loader
+    combined_loader = zip(data_loader, feature_loader)
+
+    tqdm_data_loader = tqdm(combined_loader, total=len(data_loader), miniters=print_freq, desc=header)
+    for i, ((text, value), features) in enumerate(tqdm_data_loader):
         optimizer.zero_grad()
         value = value.to(device, non_blocking=True)
+        features = features.to(device, non_blocking=True)  # Move features to the device
 
         text_input = tokenizer(text, padding='longest', truncation=True, max_length=100, return_tensors="pt").to(device)
 
-        loss = model(text_input.input_ids[:, 1:], text_input.attention_mask[:, 1:], value)
+        # Pass features to the model
+        loss = model(text_input.input_ids[:, 1:], text_input.attention_mask[:, 1:], features, value)
         loss.backward()
         optimizer.step()
 
@@ -73,7 +103,7 @@ def train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device,
             scheduler.step(i // step_size)
 
 @torch.no_grad()
-def evaluate(model, data_loader,feature_loader, tokenizer, device, denormalize=None, is_validation=True):
+def evaluate(model, data_loader, feature_loader, tokenizer, device, denormalize=None, is_validation=True):
     model.eval()
     preds = []
 
@@ -81,7 +111,10 @@ def evaluate(model, data_loader,feature_loader, tokenizer, device, denormalize=N
     if is_validation:
         answers = []
 
-    for item in data_loader:
+    # Use zip to combine data_loader and feature_loader
+    combined_loader = zip(data_loader, feature_loader)
+
+    for (item, features) in combined_loader:
         # Unpack depending on the data loader's output for validation or test
         if is_validation:
             text, value = item
@@ -90,7 +123,10 @@ def evaluate(model, data_loader,feature_loader, tokenizer, device, denormalize=N
             value = None
 
         text_input = tokenizer(text, padding='longest', return_tensors="pt").to(device)
-        prediction = model(text_input.input_ids[:, 1:], text_input.attention_mask[:, 1:], value if value is not None else None, eval=True)
+        features = features.to(device, non_blocking=True)  # Move features to the device
+
+        # Pass features to the model
+        prediction = model(text_input.input_ids[:, 1:], text_input.attention_mask[:, 1:], features, value if value is not None else None, eval=True)
         preds.append(prediction.cpu())
 
         if is_validation:
@@ -98,10 +134,6 @@ def evaluate(model, data_loader,feature_loader, tokenizer, device, denormalize=N
             answers.append(value.cpu())
 
     preds = torch.cat(preds, dim=0)
-
-    if denormalize:
-        value_mean, value_std = denormalize
-        preds = preds * value_std + value_mean
 
     # If it's validation, compute RMSE
     if is_validation:
@@ -112,41 +144,10 @@ def evaluate(model, data_loader,feature_loader, tokenizer, device, denormalize=N
     else:
         return preds
 
-
 # ======================= Main body function ========================== #
 def main(args, config):
     device = torch.device(args.device)
     print('DATASET:', args.name)
-
-    # === Dataset === #
-    print("Creating dataset")
-    name = args.name    
-    if name == 'HLM':
-        dataset_train = SMILESDataset_SHIN_HLM('data/Strain.csv')
-        dataset_val = SMILESDataset_SHIN_HLM('data/Sval.csv')
-        dataset_test = SMILESDataset_SHIN_HLM('data/Stest.csv', test = True)
-        dataset_feature_train = FEATURE_train_dataset('data/train_features_hlm.csv')
-        dataset_feature_val = FEATURE_train_dataset('data/vak_features_hlm.csv')
-        dataset_feature_test = FEATURE_train_dataset('data/test_features_hlm.csv')
-        
-    elif name == 'MLM':
-        dataset_train = SMILESDataset_SHIN_MLM('data/Strain.csv')
-        dataset_val = SMILESDataset_SHIN_MLM('data/Sval.csv')
-        dataset_test = SMILESDataset_SHIN_MLM('data/Stest.csv', test = True)
-        dataset_feature_train = FEATURE_train_dataset('data/train_features_mlm.csv')
-        dataset_feature_val = FEATURE_train_dataset('data/vak_features_mlm.csv')
-        dataset_feature_test = FEATURE_train_dataset('data/test_features_mlm.csv')
-
-    print(len(dataset_train), len(dataset_val), len(dataset_test))
-    train_loader = DataLoader(dataset_train, batch_size=config['batch_size_train'], num_workers=2, pin_memory=True, drop_last=True)
-    val_loader = DataLoader(dataset_val, batch_size=config['batch_size_test'], num_workers=2, pin_memory=True, drop_last=False)
-    test_loader = DataLoader(dataset_test, batch_size=config['batch_size_test'], num_workers=2, pin_memory=True, drop_last=False)
-    feature_train_loader = DataLoader(dataset_train, batch_size=config['batch_size_train'], num_workers=2, pin_memory=True, drop_last=True)
-    feature_val_loader = DataLoader(dataset_val, batch_size=config['batch_size_test'], num_workers=2, pin_memory=True, drop_last=False)
-    feature_test_loader = DataLoader(dataset_test, batch_size=config['batch_size_test'], num_workers=2, pin_memory=True, drop_last=False)
-
-    tokenizer = BertTokenizer(vocab_file=args.vocab_filename, do_lower_case=False, do_basic_tokenize=False)
-    tokenizer.wordpiece_tokenizer = WordpieceTokenizer(vocab=tokenizer.vocab, unk_token=tokenizer.unk_token, max_input_chars_per_word=250)
 
     # fix the seed for reproducibility
     seed = args.seed if args.seed else random.randint(0, 100)
@@ -155,64 +156,80 @@ def main(args, config):
     random.seed(seed)
     cudnn.benchmark = True
 
-    # === Model === #
-    print("Creating model")
-    model = SPMM_regressor(config=config, tokenizer=tokenizer)
-    print('#parameters:', sum(p.numel() for p in model.parameters() if p.requires_grad))
+    num_folds = 5
+    all_val_rmses = []  # Store RMSE for each fold's validation set
 
-    # ============ weights parameters =========== #
-    if args.checkpoint:
-        print('LOADING PRETRAINED MODEL..')
-        checkpoint = torch.load(args.checkpoint, map_location='cpu')
-        state_dict = checkpoint['state_dict']
-        for key in list(state_dict.keys()):
-            if '_unk' in key:
-                new_key = key.replace('_unk', '_mask')
-                state_dict[new_key] = state_dict[key]
-                del state_dict[key]
-        msg = model.load_state_dict(state_dict, strict=False)
-        print('load checkpoint from %s' % args.checkpoint)
-        # print(msg)
+    for fold in range(num_folds):
 
-    model = model.to(device)
+        print(f'======= FOLD {fold + 1} =======')
 
-    # ============ Optimizer ============= #
-    arg_opt = config['optimizer']
-    optimizer = optim.AdamW(model.parameters(), lr=arg_opt['lr'], weight_decay=arg_opt['weight_decay'])
+        # === Dataset === #
+        print("Creating dataset for fold ", fold + 1)
+        name = args.name    
+        if name == 'HLM':
+            dataset_train = SMILESDataset_SHIN_HLM('data/train.csv', mode='train', fold_num=fold)
+            dataset_val = SMILESDataset_SHIN_HLM('data/train.csv', mode='val', fold_num=fold)
+            dataset_test = SMILESDataset_SHIN_HLM('data/test.csv', mode='test')
+            dataset_feature_train = FEATUREDATASET('data/train_features.csv', mode='train', fold_num=fold)
+            dataset_feature_val = FEATUREDATASET('data/train_features.csv', mode='val', fold_num=fold)
+            dataset_feature_test = FEATUREDATASET('data/test_features.csv', mode='test')
 
-    arg_sche = AttrDict(config['schedular'])
-    lr_scheduler, _ = create_scheduler(arg_sche, optimizer)
+        elif name == 'MLM':
+            dataset_train = SMILESDataset_SHIN_MLM('data/train.csv', mode='train', fold_num=fold)
+            dataset_val = SMILESDataset_SHIN_MLM('data/train.csv', mode='val', fold_num=fold)
+            dataset_test = SMILESDataset_SHIN_MLM('data/test.csv', test='test')
+            dataset_feature_train = FEATUREDATASET('data/train_features.csv', mode='train', fold_num=fold)
+            dataset_feature_val = FEATUREDATASET('data/train_features.csv', mode='val', fold_num=fold)
+            dataset_feature_test = FEATUREDATASET('data/test_features.csv',mode='test')
 
-    max_epoch = config['schedular']['epochs']
-    warmup_steps = config['schedular']['warmup_epochs']
-    best_valid = 10000.
+        train_loader = DataLoader(dataset_train, batch_size=config['batch_size_train'], num_workers=2, pin_memory=True, drop_last=True)
+        val_loader = DataLoader(dataset_val, batch_size=config['batch_size_test'], num_workers=2, pin_memory=True, drop_last=False)
+        test_loader = DataLoader(dataset_test, batch_size=config['batch_size_test'], num_workers=2, pin_memory=True, drop_last=False)
+        feature_train_loader = DataLoader(dataset_feature_train, batch_size=config['batch_size_train'], num_workers=2, pin_memory=True, drop_last=True)
+        feature_val_loader = DataLoader(dataset_feature_val, batch_size=config['batch_size_test'], num_workers=2, pin_memory=True, drop_last=False)
+        feature_test_loader = DataLoader(dataset_feature_test, batch_size=config['batch_size_test'], num_workers=2, pin_memory=True, drop_last=False)
 
-    start_time = time.time()
+        tokenizer = BertTokenizer(vocab_file=args.vocab_filename, do_lower_case=False, do_basic_tokenize=False)
+        tokenizer.wordpiece_tokenizer = WordpieceTokenizer(vocab=tokenizer.vocab, unk_token=tokenizer.unk_token, max_input_chars_per_word=250)
 
-    # ============ Training start =============== #
-    for epoch in range(0, max_epoch):
+        # === Model === #
+        model = SPMM_regressor(config=config, tokenizer=tokenizer)
+        model = model.to(device)
 
-        print('TRAIN', epoch)
+        # ============ Optimizer ============= #
+        arg_opt = config['optimizer']
+        optimizer = optim.AdamW(model.parameters(), lr=arg_opt['lr'], weight_decay=arg_opt['weight_decay'])
+        arg_sche = AttrDict(config['schedular'])
+        lr_scheduler, _ = create_scheduler(arg_sche, optimizer)
 
-        # ================== Train datasets loaded ================== #
-        train(model, train_loader, feature_train_loader optimizer, tokenizer, epoch, warmup_steps, device, lr_scheduler)        
+        max_epoch = config['schedular']['epochs']
+        warmup_steps = config['schedular']['warmup_epochs']
+        best_valid = float('inf')
 
-        # ================== Validation datasets loaded ================== #
-        val_rmse, val_preds, val_answers = evaluate(model, val_loader, feature_val_loader tokenizer, device, is_validation=True) #, denormalize
-        print('VALID MSE: %.4f' % val_rmse)
+        # ============ Training start for this fold =============== #
+        for epoch in range(0, max_epoch):
 
-        # ================== Test datasets loaded ================== #
-        test_preds = evaluate(model, test_loader, feature_test_loader, tokenizer, device, is_validation=False) #, denormalize
+            print('TRAIN', epoch)
+            train(model, train_loader, feature_train_loader, optimizer, tokenizer, epoch, warmup_steps, device, lr_scheduler)
 
-        if val_rmse < best_valid:
-            best_valid = val_rmse
+            # ================== Validation datasets loaded ================== #
+            val_rmse, _, _ = evaluate(model, val_loader, feature_val_loader, tokenizer, device, is_validation=True)
+            print(f'VALID MSE for fold {fold + 1}, epoch {epoch}: %.4f' % val_rmse)
+            if val_rmse < best_valid:
+                best_valid = val_rmse
 
-        lr_scheduler.step(epoch + warmup_steps + 1)
+            lr_scheduler.step(epoch + warmup_steps + 1)
 
-    total_time = time.time() - start_time
-    total_time_str = str(datetime.timedelta(seconds=int(total_time)))
-    print('Training time {}'.format(total_time_str))
-    print('DATASET:', args.name, '\tTest set MSE of the checkpoint with best validation MSE:')
+        all_val_rmses.append(best_valid)
+
+        # After all epochs for this fold, you can run the test if needed
+        print(f'===== Testing for FOLD {fold + 1} =====')
+        test_preds = evaluate(model, test_loader, feature_test_loader, tokenizer, device, is_validation=False)
+
+    # Calculate the average RMSE over the 5 validation sets
+    average_rmse = sum(all_val_rmses) / num_folds
+    print(f"Average validation RMSE across {num_folds} folds: {average_rmse:.4f}")
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -231,6 +248,9 @@ if __name__ == '__main__':
         'batch_size_train': args.batch_size,
         'batch_size_test': 16,
         'embed_dim': 256,
+        'feature_dim': 197,
+        'feature_proj_dim': 99,
+        'dropout_prob': 0.2,
         'bert_config_text': './config_bert.json',
         'bert_config_property': './config_bert_property.json',
         'schedular': {'sched': 'cosine', 'lr': args.lr, 'epochs': args.epoch, 'min_lr': args.min_lr,
