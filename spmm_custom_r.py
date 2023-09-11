@@ -177,7 +177,7 @@ def main(args, config):
         elif name == 'MLM':
             dataset_train = SMILESDataset_SHIN_MLM('data/train.csv', mode='train', fold_num=fold)
             dataset_val = SMILESDataset_SHIN_MLM('data/train.csv', mode='val', fold_num=fold)
-            dataset_test = SMILESDataset_SHIN_MLM('data/test.csv', test='test')
+            dataset_test = SMILESDataset_SHIN_MLM('data/test.csv', mode='test')
             dataset_feature_train = FEATUREDATASET('data/train_features.csv', mode='train', fold_num=fold)
             dataset_feature_val = FEATUREDATASET('data/train_features.csv', mode='val', fold_num=fold)
             dataset_feature_test = FEATUREDATASET('data/test_features.csv',mode='test')
