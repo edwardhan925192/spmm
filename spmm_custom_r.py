@@ -170,17 +170,17 @@ def main(args, config):
             dataset_train = SMILESDataset_SHIN_HLM('data/train.csv', mode='train', fold_num=fold)
             dataset_val = SMILESDataset_SHIN_HLM('data/train.csv', mode='val', fold_num=fold)
             dataset_test = SMILESDataset_SHIN_HLM('data/test.csv', mode='test')
-            dataset_feature_train = FEATUREDATASET('data/train_features.csv', mode='train', fold_num=fold)
-            dataset_feature_val = FEATUREDATASET('data/train_features.csv', mode='val', fold_num=fold)
-            dataset_feature_test = FEATUREDATASET('data/test_features.csv', mode='test')
+            dataset_feature_train = FEATUREDataset('data/train_features.csv', mode='train', fold_num=fold)
+            dataset_feature_val = FEATUREDataset('data/train_features.csv', mode='val', fold_num=fold)
+            dataset_feature_test = FEATUREDataset('data/test_features.csv', mode='test')
 
         elif name == 'MLM':
             dataset_train = SMILESDataset_SHIN_MLM('data/train.csv', mode='train', fold_num=fold)
             dataset_val = SMILESDataset_SHIN_MLM('data/train.csv', mode='val', fold_num=fold)
             dataset_test = SMILESDataset_SHIN_MLM('data/test.csv', mode='test')
-            dataset_feature_train = FEATUREDATASET('data/train_features.csv', mode='train', fold_num=fold)
-            dataset_feature_val = FEATUREDATASET('data/train_features.csv', mode='val', fold_num=fold)
-            dataset_feature_test = FEATUREDATASET('data/test_features.csv',mode='test')
+            dataset_feature_train = FEATUREDataset('data/train_features.csv', mode='train', fold_num=fold)
+            dataset_feature_val = FEATUREDataset('data/train_features.csv', mode='val', fold_num=fold)
+            dataset_feature_test = FEATUREDataset('data/test_features.csv',mode='test')
 
         train_loader = DataLoader(dataset_train, batch_size=config['batch_size_train'], num_workers=2, pin_memory=True, drop_last=True)
         val_loader = DataLoader(dataset_val, batch_size=config['batch_size_test'], num_workers=2, pin_memory=True, drop_last=False)
