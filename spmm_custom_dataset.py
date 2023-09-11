@@ -9,48 +9,74 @@ from calc_property import calculate_property
 RDLogger.DisableLog('rdApp.*')
 
 class SMILESDataset_SHIN_MLM(Dataset):
-    def __init__(self, data_path, data_length=None, shuffle=False, test=False):
+    def __init__(self, data_path, mode='train', fold_num=0, shuffle=False):
+        assert mode in ['train', 'val', 'test'], "Mode should be either 'train', 'val', or 'test'"
+        
         data = pd.read_csv(data_path)
-        self.data = [data.iloc[i] for i in range(len(data))]
+        self.data = [data.iloc[i] for i in range(len(data))]        
+        
+        self.validation_ranges = [(0, 400), (800, 1200), (1600, 2000), (2400, 2800), (3000, 3400)]
+        
+        if mode == 'val':
+            val_start, val_end = self.validation_ranges[fold_num]
+            self.current_data = self.data[val_start:val_end]
 
-        self.test = test
+        elif mode == 'train':
+            val_start, val_end = self.validation_ranges[fold_num]
+            self.current_data = self.data[:val_start] + self.data[val_end:]
 
-        if shuffle: random.shuffle(self.data)
-        if data_length is not None: self.data = self.data[data_length[0]:data_length[1]]
+        elif mode == 'test':
+            # For test mode, use the entire dataset
+            self.current_data = self.data
+
+        if shuffle:
+            random.shuffle(self.current_data)
 
     def __len__(self):
-        return len(self.data)
+        return len(self.current_data)
 
-    def __getitem__(self, index):
-        mol = Chem.MolFromSmiles(self.data[index]['SMILES'])
+    def __getitem__(self, index):        
+        mol = Chem.MolFromSmiles(self.current_data[index]['SMILES'])
         smiles = Chem.MolToSmiles(mol, isomericSmiles=False, canonical=True)
-
-        if self.test:
+        
+        if 'MLM' in self.current_data[index]:
+            value = torch.tensor(self.current_data[index]['MLM'].item())
+            return '[CLS]' + smiles, value
+        else:
             return '[CLS]' + smiles
-
-        value = torch.tensor(self.data[index]['MLM'].item())
-        return '[CLS]' + smiles, value
 
 class SMILESDataset_SHIN_HLM(Dataset):
-    def __init__(self, data_path,data_length=None, shuffle=False, test=False):
+    def __init__(self, data_path, mode='train', fold_num=0, shuffle=False):
+        assert mode in ['train', 'val', 'test'], "Mode should be either 'train', 'val', or 'test'"
+        
         data = pd.read_csv(data_path)
         self.data = [data.iloc[i] for i in range(len(data))]
+        
+        # Defining validation index ranges
+        self.validation_ranges = [(0, 400), (800, 1200), (1600, 2000), (2400, 2800), (3000, 3400)]
+        
+        if mode == 'val':
+            val_start, val_end = self.validation_ranges[fold_num]
+            self.current_data = self.data[val_start:val_end]
+        elif mode == 'train':
+            val_start, val_end = self.validation_ranges[fold_num]
+            self.current_data = self.data[:val_start] + self.data[val_end:]
+        elif mode == 'test':
+            # For test mode, use the entire dataset
+            self.current_data = self.data
 
-        self.test = test
-
-        if shuffle: random.shuffle(self.data)
-        if data_length is not None: self.data = self.data[data_length[0]:data_length[1]]
+        if shuffle:
+            random.shuffle(self.current_data)
 
     def __len__(self):
-        return len(self.data)
+        return len(self.current_data)
 
-    def __getitem__(self, index):
-        mol = Chem.MolFromSmiles(self.data[index]['SMILES'])
+    def __getitem__(self, index):        
+        mol = Chem.MolFromSmiles(self.current_data[index]['SMILES'])
         smiles = Chem.MolToSmiles(mol, isomericSmiles=False, canonical=True)
-
-        if self.test:
+        
+        if 'HLM' in self.current_data[index]:
+            value = torch.tensor(self.current_data[index]['HLM'].item())
+            return '[CLS]' + smiles, value
+        else:
             return '[CLS]' + smiles
-
-        value = torch.tensor(self.data[index]['HLM'].item())
-        return '[CLS]' + smiles, value
-
