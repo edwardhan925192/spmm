@@ -2,46 +2,44 @@ from torch.utils.data import Dataset
 import torch
 import random
 import pandas as pd
-import pickle
 from rdkit import RDLogger
 RDLogger.DisableLog('rdApp.*')
 
-class FEATURE_train_dataset(Dataset):
-    def __init__(self, data_path, data_length=None, shuffle=False, test=False):
-      data = pd.read_csv(data_path)
-      self.data = [data.iloc[i] for i in range(len(data))]
+class FEATUREDataset(Dataset):
+    def __init__(self, data_path, mode='train', fold_num=0, shuffle=False):
+        assert mode in ['train', 'val', 'test'], "Mode should be either 'train', 'val', or 'test'"
+        
+        data = pd.read_csv(data_path)
+        self.data = [data.iloc[i] for i in range(len(data))]
+        
+        # Defining validation index ranges
+        self.validation_ranges = [(0, 400), (800, 1200), (1600, 2000), (2400, 2800), (3000, 3400)]
+        
+        if mode == 'val':
+            val_start, val_end = self.validation_ranges[fold_num]
+            self.current_data = self.data[val_start:val_end]
+        elif mode == 'train':
+            val_start, val_end = self.validation_ranges[fold_num]
+            self.current_data = self.data[:val_start] + self.data[val_end:]
+        elif mode == 'test':
+            # For test mode, use the entire dataset
+            self.current_data = self.data
 
-      self.test = test
+        if shuffle:
+            random.shuffle(self.current_data)
 
-      if shuffle: random.shuffle(self.data)
-      if data_length is not None: self.data = self.data[data_length[0]:data_length[1]]
-
-    def __len__(self):
-      return len(self.data)
-
-    def __getitem__(self, index):
-      row = self.data.iloc[index]
-
-      # Convert all columns except the first one to tensors
-      tensor_row = torch.tensor(row.values[1:], dtype=torch.float)
-
-      return tensor_row
-
-class FEATURE_test_dataset(Dataset):
-    def __init__(self, data_path, data_length=None, shuffle=False):
-      data = pd.read_csv(data_path)
-      self.data = [data.iloc[i] for i in range(len(data))]
-
-      if shuffle: random.shuffle(self.data)
-      if data_length is not None: self.data = self.data[data_length[0]:data_length[1]]
+        self.mode = mode
 
     def __len__(self):
-      return len(self.data)
+        return len(self.current_data)
 
-    def __getitem__(self, index):
-      row = self.data.iloc[index]
+    def __getitem__(self, index):        
+        row = self.current_data[index]
+        
+        # For train and validation, exclude the first column
+        # For test, include all columns
+        values_to_convert = row.values[1:] if self.mode != 'test' else row.values
+        
+        tensor_row = torch.tensor(values_to_convert, dtype=torch.float)
 
-      # Convert all columns except the first one to tensors
-      tensor_row = torch.tensor(row.values, dtype=torch.float)
-
-      return tensor_row
+        return tensor_row
