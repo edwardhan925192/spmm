@@ -6,14 +6,14 @@ import time
 import torch.backends.cudnn as cudnn
 from transformers import BertTokenizer, WordpieceTokenizer
 import datetime
-from dataset import SMILESDataset_LIPO, SMILESDataset_BACER, SMILESDataset_Clearance, SMILESDataset_ESOL, SMILESDataset_Freesolv
 from spmm_custom_dataset import SMILESDataset_SHIN_MLM, SMILESDataset_SHIN_HLM, FEATUREDataset
 from torch.utils.data import DataLoader
 import torch.optim as optim
-from scheduler import create_scheduler
 import random
 import torch.nn as nn
 from xbert import BertConfig, BertForMaskedLM
+from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
+
 
 class AttrDict(dict):
     def __init__(self, *args, **kwargs):
@@ -54,6 +54,20 @@ class SPMM_regressor(nn.Module):
         for param in self.reg_head.parameters():
             param.requires_grad = True
 
+        # ===================== param optim ===================== #
+    def get_optimizer_params(self, base_lr,config):
+    
+      # Separate parameters of BERT and regression head
+      bert_params = list(self.text_encoder.parameters())
+      reg_head_params = list(self.feature_proj.parameters()) + list(self.reg_head.parameters())
+      
+      # Assign learning rates
+      optimizer_grouped_parameters = [
+          {"params": bert_params, "lr": base_lr * config['bert_lprob']},  # Use 0.1x the base learning rate for BERT
+          {"params": reg_head_params, "lr": base_lr},    # Use the base learning rate for regression head
+      ]
+      return optimizer_grouped_parameters
+
     def forward(self, text_input_ids, text_attention_mask,features, value, eval=False):
         vl_embeddings = self.text_encoder.bert(text_input_ids, attention_mask=text_attention_mask, return_dict=True, mode='text').last_hidden_state
         vl_embeddings = vl_embeddings[:, 0, :]
@@ -72,14 +86,13 @@ class SPMM_regressor(nn.Module):
         loss = lossfn(pred, value)
         return loss
 
-def train(model, data_loader, feature_loader, optimizer, tokenizer, epoch, warmup_steps, device, scheduler):
+def train(model, data_loader, feature_loader, optimizer, tokenizer, epoch,  device ):
     # train
     model.train()
 
     header = 'Train Epoch: [{}]'.format(epoch)
     print_freq = 20
-    step_size = 100
-    warmup_iterations = warmup_steps * step_size
+    step_size = 100    
 
     # Use zip to combine data_loader and feature_loader
     combined_loader = zip(data_loader, feature_loader)
@@ -97,10 +110,7 @@ def train(model, data_loader, feature_loader, optimizer, tokenizer, epoch, warmu
         loss.backward()
         optimizer.step()
 
-        tqdm_data_loader.set_description(f'loss={loss.item():.4f}, lr={optimizer.param_groups[0]["lr"]:.6f}')
-
-        if epoch == 0 and i % step_size == 0 and i <= warmup_iterations:
-            scheduler.step(i // step_size)
+        tqdm_data_loader.set_description(f'loss={loss.item():.4f}, lr={optimizer.param_groups[0]["lr"]:.6f}')        
 
 @torch.no_grad()
 def evaluate(model, data_loader, feature_loader, tokenizer, device, denormalize=None, is_validation=True):
@@ -158,7 +168,7 @@ def main(args, config):
 
     num_folds = 5
     all_val_rmses = []  # Store RMSE for each fold's validation set
-
+    
     for fold in range(num_folds):
 
         print(f'======= FOLD {fold + 1} =======')
@@ -197,20 +207,20 @@ def main(args, config):
         model = model.to(device)
 
         # ============ Optimizer ============= #
-        arg_opt = config['optimizer']
-        optimizer = optim.AdamW(model.parameters(), lr=arg_opt['lr'], weight_decay=arg_opt['weight_decay'])
-        arg_sche = AttrDict(config['schedular'])
-        lr_scheduler, _ = create_scheduler(arg_sche, optimizer)
+        optimizer_grouped_parameters = model.get_optimizer_params(base_lr=args.lr, config=config)
+        optimizer = optim.AdamW(optimizer_grouped_parameters, lr=args.lr, weight_decay=config['optimizer']['weight_decay'])                
 
-        max_epoch = config['schedular']['epochs']
-        warmup_steps = config['schedular']['warmup_epochs']
+        scheduler_config = config['schedular']
+        scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=scheduler_config['T_0'], T_mult=scheduler_config['T_mult'])
+
+        max_epoch = config['schedular']['epochs']        
         best_valid = float('inf')
 
         # ============ Training start for this fold =============== #
         for epoch in range(0, max_epoch):
 
             print('TRAIN', epoch)
-            train(model, train_loader, feature_train_loader, optimizer, tokenizer, epoch, warmup_steps, device, lr_scheduler)
+            train(model, train_loader, feature_train_loader, optimizer, tokenizer, epoch,  device)
 
             # ================== Validation datasets loaded ================== #
             val_rmse, _, _ = evaluate(model, val_loader, feature_val_loader, tokenizer, device, is_validation=True)
@@ -218,7 +228,8 @@ def main(args, config):
             if val_rmse < best_valid:
                 best_valid = val_rmse
 
-            lr_scheduler.step(epoch + warmup_steps + 1)
+            # ================= scheduler step ================= # 
+            scheduler.step()
 
         all_val_rmses.append(best_valid)
 
@@ -250,11 +261,11 @@ if __name__ == '__main__':
         'embed_dim': 256,
         'feature_dim': 197,
         'feature_proj_dim': 99,
+        'bert_lprob':0.05,
         'dropout_prob': 0.2,
         'bert_config_text': './config_bert.json',
         'bert_config_property': './config_bert_property.json',
-        'schedular': {'sched': 'cosine', 'lr': args.lr, 'epochs': args.epoch, 'min_lr': args.min_lr,
-                      'decay_rate': 1, 'warmup_lr': 0.5e-5, 'warmup_epochs': 1, 'cooldown_epochs': 0},
+        'schedular': {'lr': args.lr, 'epochs': args.epoch, 'min_lr': args.min_lr, 'T_0':2, 'T_mult':2},
         'optimizer': {'opt': 'adamW', 'lr': args.lr, 'weight_decay': 0.02}
     }
     main(args, cls_config)
