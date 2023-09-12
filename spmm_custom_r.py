@@ -33,7 +33,7 @@ class SPMM_regressor(nn.Module):
 
         # Freeze BERT layers
         for param in self.text_encoder.parameters():
-            param.requires_grad = False
+            param.requires_grad = True
 
         # Projecting features denoising with additional dropout for regularization purpose
         self.feature_proj = nn.Sequential(
