@@ -4,5 +4,9 @@ Frozen bert layer
 
 Non frozen bert layer 
 
+30.8674 --epoch 20 --lr 0.0001
+
 Small learning rate for different layers 
+
+
 
