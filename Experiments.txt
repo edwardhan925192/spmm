@@ -8,5 +8,5 @@ Non frozen bert layer
 
 Small learning rate for different layers 
 
-
+30.7385 --epoch 15 --lr 0.0007
 
