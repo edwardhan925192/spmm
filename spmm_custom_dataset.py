@@ -39,11 +39,13 @@ class SMILESDataset_SHIN_MLM(Dataset):
         mol = Chem.MolFromSmiles(self.current_data[index]['SMILES'])
         smiles = Chem.MolToSmiles(mol, isomericSmiles=False, canonical=True)
         
-        if 'MLM' in self.current_data[index]:
-            value = torch.tensor(self.current_data[index]['MLM'].item())
-            return '[CLS]' + smiles, value
+        if 'MLM' in self.current_data[index] and 'HLM' in self.current_data[index]:
+          value1 = torch.tensor(self.current_data[index]['MLM'].item())
+          value2 = torch.tensor(self.current_data[index]['HLM'].item())
+          difference = torch.tensor(self.current_data[index]['HLM'].item() - self.current_data[index]['MLM'].item())
+          return '[CLS]' + smiles, value1, value2, difference
         else:
-            return '[CLS]' + smiles
+          return '[CLS]' + smiles
 
 class SMILESDataset_SHIN_HLM(Dataset):
     def __init__(self, data_path, mode='train', fold_num=0, shuffle=False):
@@ -75,11 +77,13 @@ class SMILESDataset_SHIN_HLM(Dataset):
         mol = Chem.MolFromSmiles(self.current_data[index]['SMILES'])
         smiles = Chem.MolToSmiles(mol, isomericSmiles=False, canonical=True)
         
-        if 'HLM' in self.current_data[index]:
-            value = torch.tensor(self.current_data[index]['HLM'].item())
-            return '[CLS]' + smiles, value
+        if 'HLM' in self.current_data[index] and 'MLM' in self.current_data[index]:
+          value1 = torch.tensor(self.current_data[index]['HLM'].item())
+          value2 = torch.tensor(self.current_data[index]['MLM'].item())
+          difference = torch.tensor(self.current_data[index]['MLM'].item() - self.current_data[index]['HLM'].item())
+          return '[CLS]' + smiles, value1, value2, difference
         else:
-            return '[CLS]' + smiles
+          return '[CLS]' + smiles
 
 class FEATUREDataset(Dataset):
     def __init__(self, data_path, mode='train', fold_num=0, shuffle=False):
